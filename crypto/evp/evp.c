@@ -59,12 +59,9 @@
 #include <assert.h>
 #include <string.h>
 
-#include <openssl/dsa.h>
-#include <openssl/ec.h>
 #include <openssl/err.h>
 #include <openssl/mem.h>
 #include <openssl/nid.h>
-#include <openssl/rsa.h>
 #include <openssl/thread.h>
 
 #include "internal.h"
@@ -215,16 +212,7 @@ int EVP_PKEY_id(const EVP_PKEY *pkey) {
 // unknown.
 static const EVP_PKEY_ASN1_METHOD *evp_pkey_asn1_find(int nid) {
   switch (nid) {
-    case EVP_PKEY_RSA:
-      return &rsa_asn1_meth;
-    case EVP_PKEY_EC:
-      return &ec_asn1_meth;
-    case EVP_PKEY_DSA:
-      return &dsa_asn1_meth;
-    case EVP_PKEY_ED25519:
-      return &ed25519_asn1_meth;
-    case EVP_PKEY_X25519:
-      return &x25519_asn1_meth;
+ 
     default:
       return NULL;
   }
@@ -238,100 +226,6 @@ int EVP_PKEY_type(int nid) {
   return meth->pkey_id;
 }
 
-int EVP_PKEY_set1_RSA(EVP_PKEY *pkey, RSA *key) {
-  if (EVP_PKEY_assign_RSA(pkey, key)) {
-    RSA_up_ref(key);
-    return 1;
-  }
-  return 0;
-}
-
-int EVP_PKEY_assign_RSA(EVP_PKEY *pkey, RSA *key) {
-  return EVP_PKEY_assign(pkey, EVP_PKEY_RSA, key);
-}
-
-RSA *EVP_PKEY_get0_RSA(const EVP_PKEY *pkey) {
-  if (pkey->type != EVP_PKEY_RSA) {
-    OPENSSL_PUT_ERROR(EVP, EVP_R_EXPECTING_AN_RSA_KEY);
-    return NULL;
-  }
-  return pkey->pkey.rsa;
-}
-
-RSA *EVP_PKEY_get1_RSA(const EVP_PKEY *pkey) {
-  RSA *rsa = EVP_PKEY_get0_RSA(pkey);
-  if (rsa != NULL) {
-    RSA_up_ref(rsa);
-  }
-  return rsa;
-}
-
-int EVP_PKEY_set1_DSA(EVP_PKEY *pkey, DSA *key) {
-  if (EVP_PKEY_assign_DSA(pkey, key)) {
-    DSA_up_ref(key);
-    return 1;
-  }
-  return 0;
-}
-
-int EVP_PKEY_assign_DSA(EVP_PKEY *pkey, DSA *key) {
-  return EVP_PKEY_assign(pkey, EVP_PKEY_DSA, key);
-}
-
-DSA *EVP_PKEY_get0_DSA(const EVP_PKEY *pkey) {
-  if (pkey->type != EVP_PKEY_DSA) {
-    OPENSSL_PUT_ERROR(EVP, EVP_R_EXPECTING_A_DSA_KEY);
-    return NULL;
-  }
-  return pkey->pkey.dsa;
-}
-
-DSA *EVP_PKEY_get1_DSA(const EVP_PKEY *pkey) {
-  DSA *dsa = EVP_PKEY_get0_DSA(pkey);
-  if (dsa != NULL) {
-    DSA_up_ref(dsa);
-  }
-  return dsa;
-}
-
-int EVP_PKEY_set1_EC_KEY(EVP_PKEY *pkey, EC_KEY *key) {
-  if (EVP_PKEY_assign_EC_KEY(pkey, key)) {
-    EC_KEY_up_ref(key);
-    return 1;
-  }
-  return 0;
-}
-
-int EVP_PKEY_assign_EC_KEY(EVP_PKEY *pkey, EC_KEY *key) {
-  return EVP_PKEY_assign(pkey, EVP_PKEY_EC, key);
-}
-
-EC_KEY *EVP_PKEY_get0_EC_KEY(const EVP_PKEY *pkey) {
-  if (pkey->type != EVP_PKEY_EC) {
-    OPENSSL_PUT_ERROR(EVP, EVP_R_EXPECTING_AN_EC_KEY_KEY);
-    return NULL;
-  }
-  return pkey->pkey.ec;
-}
-
-EC_KEY *EVP_PKEY_get1_EC_KEY(const EVP_PKEY *pkey) {
-  EC_KEY *ec_key = EVP_PKEY_get0_EC_KEY(pkey);
-  if (ec_key != NULL) {
-    EC_KEY_up_ref(ec_key);
-  }
-  return ec_key;
-}
-
-DH *EVP_PKEY_get0_DH(const EVP_PKEY *pkey) { return NULL; }
-DH *EVP_PKEY_get1_DH(const EVP_PKEY *pkey) { return NULL; }
-
-int EVP_PKEY_assign(EVP_PKEY *pkey, int type, void *key) {
-  if (!EVP_PKEY_set_type(pkey, type)) {
-    return 0;
-  }
-  pkey->pkey.ptr = key;
-  return key != NULL;
-}
 
 int EVP_PKEY_set_type(EVP_PKEY *pkey, int type) {
   const EVP_PKEY_ASN1_METHOD *ameth;
