@@ -474,7 +474,10 @@ target_include_directories(
 # themselves as dependencies next to the target definition.
 add_custom_target(all_tests)
 
-add_subdirectory(ssl/test)
+if (boringssl_BUILD_TESTS)
+  add_subdirectory(ssl/test)
+endif ()
+
 add_subdirectory(util/fipstools)
 add_subdirectory(util/fipstools/acvp/modulewrapper)
 
@@ -612,36 +615,39 @@ target_link_libraries(ssl crypto)
 add_library(decrepit ${DECREPIT_SOURCES})
 target_link_libraries(decrepit crypto ssl)
 
-add_library(test_support_lib STATIC
-            ${TEST_SUPPORT_SOURCES} ${TEST_SUPPORT_SOURCES_ASM_USED})
-if(LIBUNWIND_FOUND)
-  target_compile_options(test_support_lib PRIVATE ${LIBUNWIND_CFLAGS_OTHER})
-  target_include_directories(test_support_lib PRIVATE ${LIBUNWIND_INCLUDE_DIRS})
-  target_link_libraries(test_support_lib ${LIBUNWIND_LDFLAGS})
-endif()
-if(WIN32)
-  target_link_libraries(test_support_lib dbghelp)
-endif()
-target_link_libraries(test_support_lib boringssl_gtest crypto)
+if (boringssl_BUILD_TESTS)
+  add_library(test_support_lib STATIC
+              ${TEST_SUPPORT_SOURCES} ${TEST_SUPPORT_SOURCES_ASM_USED})
 
-# urandom_test is a separate binary because it needs to be able to observe the
-# PRNG initialisation, which means that it can't have other tests running before
-# it does.
-add_executable(urandom_test ${URANDOM_TEST_SOURCES})
-target_link_libraries(urandom_test test_support_lib boringssl_gtest crypto)
-add_dependencies(all_tests urandom_test)
+  if(LIBUNWIND_FOUND)
+    target_compile_options(test_support_lib PRIVATE ${LIBUNWIND_CFLAGS_OTHER})
+    target_include_directories(test_support_lib PRIVATE ${LIBUNWIND_INCLUDE_DIRS})
+    target_link_libraries(test_support_lib ${LIBUNWIND_LDFLAGS})
+  endif()
+  if(WIN32)
+    target_link_libraries(test_support_lib dbghelp)
+  endif()
+  target_link_libraries(test_support_lib boringssl_gtest crypto)
 
-add_executable(crypto_test ${CRYPTO_TEST_SOURCES})
-target_link_libraries(crypto_test test_support_lib boringssl_gtest crypto)
-add_dependencies(all_tests crypto_test)
+  # urandom_test is a separate binary because it needs to be able to observe the
+  # PRNG initialisation, which means that it can't have other tests running before
+  # it does.
+  add_executable(urandom_test ${URANDOM_TEST_SOURCES})
+  target_link_libraries(urandom_test test_support_lib boringssl_gtest crypto)
+  add_dependencies(all_tests urandom_test)
 
-add_executable(ssl_test ${SSL_TEST_SOURCES})
-target_link_libraries(ssl_test test_support_lib boringssl_gtest ssl crypto)
-add_dependencies(all_tests ssl_test)
-add_executable(decrepit_test ${DECREPIT_TEST_SOURCES})
-target_link_libraries(decrepit_test test_support_lib boringssl_gtest
-                      decrepit crypto)
-add_dependencies(all_tests decrepit_test)
+  add_executable(crypto_test ${CRYPTO_TEST_SOURCES})
+  target_link_libraries(crypto_test test_support_lib boringssl_gtest crypto)
+  add_dependencies(all_tests crypto_test)
+
+  add_executable(ssl_test ${SSL_TEST_SOURCES})
+  target_link_libraries(ssl_test test_support_lib boringssl_gtest ssl crypto)
+  add_dependencies(all_tests ssl_test)
+  add_executable(decrepit_test ${DECREPIT_TEST_SOURCES})
+  target_link_libraries(decrepit_test test_support_lib boringssl_gtest
+                        decrepit crypto)
+  add_dependencies(all_tests decrepit_test)
+endif ()
 
 if(APPLE)
   set(PKI_CXX_FLAGS "-fno-aligned-new")
@@ -650,17 +656,27 @@ endif()
 add_library(pki ${PKI_SOURCES})
 target_link_libraries(pki crypto)
 
-add_executable(pki_test ${PKI_TEST_SOURCES})
-target_link_libraries(pki_test test_support_lib boringssl_gtest pki crypto)
-add_dependencies(all_tests pki_test)
+if (boringssl_BUILD_TESTS)
+  add_executable(pki_test ${PKI_TEST_SOURCES})
+  target_link_libraries(pki_test test_support_lib boringssl_gtest pki crypto)
+  add_dependencies(all_tests pki_test)
+
+  # The PKI library requires C++17.
+  set_target_properties(
+    pki_test
+    PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED YES
+    COMPILE_FLAGS "${PKI_CXX_FLAGS}")
+endif ()
 
 # The PKI library requires C++17.
 set_target_properties(
-  pki pki_test
-  PROPERTIES
-  CXX_STANDARD 17
-  CXX_STANDARD_REQUIRED YES
-  COMPILE_FLAGS "${PKI_CXX_FLAGS}")
+        pki
+        PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED YES
+        COMPILE_FLAGS "${PKI_CXX_FLAGS}")
 
 add_executable(bssl ${BSSL_SOURCES})
 target_link_libraries(bssl ssl crypto)
@@ -668,10 +684,12 @@ target_link_libraries(bssl ssl crypto)
 # Historically, targets were built in subdirectories. For compatibility with
 # existing tools, we, for now, copy the targets into the subdirectories. This
 # will be removed sometime in 2024.
-copy_post_build(crypto crypto crypto_test urandom_test)
-copy_post_build(ssl ssl ssl_test)
-copy_post_build(decrepit decrepit decrepit_test)
-copy_post_build(tool bssl)
+if (boringssl_BUILD_TESTS)
+  copy_post_build(crypto crypto crypto_test urandom_test)
+  copy_post_build(ssl ssl ssl_test)
+  copy_post_build(decrepit decrepit decrepit_test)
+  copy_post_build(tool bssl)
+endif ()
 
 if(FUZZ)
   if(LIBFUZZER_FROM_DEPS)
@@ -698,50 +716,52 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   set(HANDSHAKER_ARGS "-handshaker-path" $<TARGET_FILE:handshaker>)
 endif()
 
-if(FIPS)
-  add_custom_target(
-    acvp_tests
-    COMMAND ${GO_EXECUTABLE} build -o ${CMAKE_CURRENT_BINARY_DIR}/acvptool
-            boringssl.googlesource.com/boringssl/util/fipstools/acvp/acvptool
-    COMMAND ${GO_EXECUTABLE} build -o ${CMAKE_CURRENT_BINARY_DIR}/testmodulewrapper
-            boringssl.googlesource.com/boringssl/util/fipstools/acvp/acvptool/testmodulewrapper
-    COMMAND cd util/fipstools/acvp/acvptool/test &&
-            ${GO_EXECUTABLE} run check_expected.go
-            -tool ${CMAKE_CURRENT_BINARY_DIR}/acvptool
-            -module-wrappers modulewrapper:$<TARGET_FILE:modulewrapper>,testmodulewrapper:${CMAKE_CURRENT_BINARY_DIR}/testmodulewrapper
-            -tests tests.json
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS modulewrapper
-    USES_TERMINAL)
+if (boringssl_BUILD_TESTS)
+  if(FIPS)
+    add_custom_target(
+      acvp_tests
+      COMMAND ${GO_EXECUTABLE} build -o ${CMAKE_CURRENT_BINARY_DIR}/acvptool
+              boringssl.googlesource.com/boringssl/util/fipstools/acvp/acvptool
+      COMMAND ${GO_EXECUTABLE} build -o ${CMAKE_CURRENT_BINARY_DIR}/testmodulewrapper
+              boringssl.googlesource.com/boringssl/util/fipstools/acvp/acvptool/testmodulewrapper
+      COMMAND cd util/fipstools/acvp/acvptool/test &&
+              ${GO_EXECUTABLE} run check_expected.go
+              -tool ${CMAKE_CURRENT_BINARY_DIR}/acvptool
+              -module-wrappers modulewrapper:$<TARGET_FILE:modulewrapper>,testmodulewrapper:${CMAKE_CURRENT_BINARY_DIR}/testmodulewrapper
+              -tests tests.json
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      DEPENDS modulewrapper
+      USES_TERMINAL)
+
+    add_custom_target(
+      fips_specific_tests_if_any
+      DEPENDS acvp_tests
+    )
+  else()
+    add_custom_target(fips_specific_tests_if_any)
+  endif()
+
+  file(STRINGS util/go_tests.txt GO_TESTS)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+               util/go_tests.txt)
 
   add_custom_target(
-    fips_specific_tests_if_any
-    DEPENDS acvp_tests
-  )
-else()
-  add_custom_target(fips_specific_tests_if_any)
-endif()
-
-file(STRINGS util/go_tests.txt GO_TESTS)
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-             util/go_tests.txt)
-
-add_custom_target(
-    run_tests
-    COMMAND ${CMAKE_COMMAND} -E echo "Running Go tests"
-    COMMAND ${GO_EXECUTABLE} test ${GO_TESTS}
-    COMMAND ${CMAKE_COMMAND} -E echo
-    COMMAND ${CMAKE_COMMAND} -E echo "Running unit tests"
-    COMMAND ${GO_EXECUTABLE} run util/all_tests.go -build-dir
-            ${CMAKE_CURRENT_BINARY_DIR}
-    COMMAND ${CMAKE_COMMAND} -E echo
-    COMMAND ${CMAKE_COMMAND} -E echo "Running SSL tests"
-    COMMAND cd ssl/test/runner &&
-            ${GO_EXECUTABLE} test -shim-path $<TARGET_FILE:bssl_shim>
-              ${HANDSHAKER_ARGS} ${RUNNER_ARGS}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS all_tests bssl_shim handshaker fips_specific_tests_if_any
-    USES_TERMINAL)
+      run_tests
+      COMMAND ${CMAKE_COMMAND} -E echo "Running Go tests"
+      COMMAND ${GO_EXECUTABLE} test ${GO_TESTS}
+      COMMAND ${CMAKE_COMMAND} -E echo
+      COMMAND ${CMAKE_COMMAND} -E echo "Running unit tests"
+      COMMAND ${GO_EXECUTABLE} run util/all_tests.go -build-dir
+              ${CMAKE_CURRENT_BINARY_DIR}
+      COMMAND ${CMAKE_COMMAND} -E echo
+      COMMAND ${CMAKE_COMMAND} -E echo "Running SSL tests"
+      COMMAND cd ssl/test/runner &&
+              ${GO_EXECUTABLE} test -shim-path $<TARGET_FILE:bssl_shim>
+                ${HANDSHAKER_ARGS} ${RUNNER_ARGS}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      DEPENDS all_tests bssl_shim handshaker fips_specific_tests_if_any
+      USES_TERMINAL)
+endif ()
 
 if(INSTALL_ENABLED)
   # CMake versions before 3.14 do not have default destination values. Executable
