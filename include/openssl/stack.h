@@ -139,7 +139,8 @@ STACK_OF(SAMPLE) *sk_SAMPLE_new(sk_SAMPLE_cmp_func comp);
 STACK_OF(SAMPLE) *sk_SAMPLE_new_null(void);
 
 // sk_SAMPLE_num returns the number of elements in |sk|. It is safe to cast this
-// value to |int|. |sk| is guaranteed to have at most |INT_MAX| elements.
+// value to |int|. |sk| is guaranteed to have at most |INT_MAX| elements. If
+// |sk| is NULL, it is treated as the empty list and this function returns zero.
 size_t sk_SAMPLE_num(const STACK_OF(SAMPLE) *sk);
 
 // sk_SAMPLE_zero resets |sk| to the empty state but does nothing to free the
@@ -147,7 +148,8 @@ size_t sk_SAMPLE_num(const STACK_OF(SAMPLE) *sk);
 void sk_SAMPLE_zero(STACK_OF(SAMPLE) *sk);
 
 // sk_SAMPLE_value returns the |i|th pointer in |sk|, or NULL if |i| is out of
-// range.
+// range. If |sk| is NULL, it is treated as an empty list and the function
+// returns NULL.
 SAMPLE *sk_SAMPLE_value(const STACK_OF(SAMPLE) *sk, size_t i);
 
 // sk_SAMPLE_set sets the |i|th pointer in |sk| to |p| and returns |p|. If |i|
@@ -195,7 +197,8 @@ void sk_SAMPLE_delete_if(STACK_OF(SAMPLE) *sk, sk_SAMPLE_delete_if_func func,
 // If the stack is sorted (see |sk_SAMPLE_sort|), this function uses a binary
 // search. Otherwise it performs a linear search. If it finds a matching
 // element, it writes the index to |*out_index| (if |out_index| is not NULL) and
-// returns one. Otherwise, it returns zero.
+// returns one. Otherwise, it returns zero. If |sk| is NULL, it is treated as
+// the empty list and the function returns zero.
 //
 // Note this differs from OpenSSL. The type signature is slightly different, and
 // OpenSSL's version will implicitly sort |sk| if it has a comparison function
@@ -330,36 +333,35 @@ OPENSSL_EXPORT OPENSSL_STACK *OPENSSL_sk_deep_copy(
 //
 // TODO(crbug.com/boringssl/499): Migrate callers to the typed wrappers, or at
 // least the new names and remove the old ones.
+//
+// TODO(b/290792019, b/290785937): Ideally these would at least be inline
+// functions, so we do not squat the symbols.
 
 typedef OPENSSL_STACK _STACK;
 
-OPENSSL_INLINE OPENSSL_STACK *sk_new_null(void) {
-  return OPENSSL_sk_new_null();
-}
+// The following functions call the corresponding |OPENSSL_sk_*| function.
+OPENSSL_EXPORT OPENSSL_DEPRECATED OPENSSL_STACK *sk_new_null(void);
+OPENSSL_EXPORT OPENSSL_DEPRECATED size_t sk_num(const OPENSSL_STACK *sk);
+OPENSSL_EXPORT OPENSSL_DEPRECATED void *sk_value(const OPENSSL_STACK *sk,
+                                                 size_t i);
+OPENSSL_EXPORT OPENSSL_DEPRECATED void sk_free(OPENSSL_STACK *sk);
+OPENSSL_EXPORT OPENSSL_DEPRECATED size_t sk_push(OPENSSL_STACK *sk, void *p);
+OPENSSL_EXPORT OPENSSL_DEPRECATED void *sk_pop(OPENSSL_STACK *sk);
 
-OPENSSL_INLINE size_t sk_num(const OPENSSL_STACK *sk) {
-  return OPENSSL_sk_num(sk);
-}
+// sk_pop_free_ex calls |OPENSSL_sk_pop_free_ex|.
+//
+// TODO(b/291994116): Remove this.
+OPENSSL_EXPORT OPENSSL_DEPRECATED void sk_pop_free_ex(
+    OPENSSL_STACK *sk, OPENSSL_sk_call_free_func call_free_func,
+    OPENSSL_sk_free_func free_func);
 
-OPENSSL_INLINE void *sk_value(const OPENSSL_STACK *sk, size_t i) {
-  return OPENSSL_sk_value(sk, i);
-}
-
-OPENSSL_INLINE void sk_free(OPENSSL_STACK *sk) { OPENSSL_sk_free(sk); }
-
-OPENSSL_INLINE size_t sk_push(OPENSSL_STACK *sk, void *p) {
-  return OPENSSL_sk_push(sk, p);
-}
-
-OPENSSL_INLINE void *sk_pop(OPENSSL_STACK *sk) { return OPENSSL_sk_pop(sk); }
-
-// sk_pop_free behaves like |sk_pop_free_ex| but performs an invalid function
-// pointer cast. It exists because some existing callers called |sk_pop_free|
-// directly.
+// sk_pop_free behaves like |OPENSSL_sk_pop_free_ex| but performs an invalid
+// function pointer cast. It exists because some existing callers called
+// |sk_pop_free| directly.
 //
 // TODO(davidben): Migrate callers to bssl::UniquePtr and remove this.
-OPENSSL_EXPORT void sk_pop_free(OPENSSL_STACK *sk,
-                                OPENSSL_sk_free_func free_func);
+OPENSSL_EXPORT OPENSSL_DEPRECATED void sk_pop_free(
+    OPENSSL_STACK *sk, OPENSSL_sk_free_func free_func);
 
 
 #if !defined(BORINGSSL_NO_CXX)

@@ -24,7 +24,7 @@
 #include <openssl/curve25519.h>
 #include <openssl/ec.h>
 #include <openssl/err.h>
-#include <openssl/kyber.h>
+#include <openssl/experimental/kyber.h>
 #include <openssl/hrss.h>
 #include <openssl/mem.h>
 #include <openssl/nid.h>
@@ -40,8 +40,8 @@ namespace {
 
 class ECKeyShare : public SSLKeyShare {
  public:
-  ECKeyShare(int nid, uint16_t group_id)
-      : group_(EC_GROUP_new_by_curve_name(nid)), group_id_(group_id) {}
+  ECKeyShare(const EC_GROUP *group, uint16_t group_id)
+      : group_(group), group_id_(group_id) {}
 
   uint16_t GroupID() const override { return group_id_; }
 
@@ -49,17 +49,16 @@ class ECKeyShare : public SSLKeyShare {
     assert(!private_key_);
     // Generate a private key.
     private_key_.reset(BN_new());
-    if (!group_ || !private_key_ ||
-        !BN_rand_range_ex(private_key_.get(), 1,
-                          EC_GROUP_get0_order(group_))) {
+    if (!private_key_ ||
+        !BN_rand_range_ex(private_key_.get(), 1, EC_GROUP_get0_order(group_))) {
       return false;
     }
 
     // Compute the corresponding public key and serialize it.
     UniquePtr<EC_POINT> public_key(EC_POINT_new(group_));
     if (!public_key ||
-        !EC_POINT_mul(group_, public_key.get(), private_key_.get(),
-                      nullptr, nullptr, /*ctx=*/nullptr) ||
+        !EC_POINT_mul(group_, public_key.get(), private_key_.get(), nullptr,
+                      nullptr, /*ctx=*/nullptr) ||
         !EC_POINT_point2cbb(out, group_, public_key.get(),
                             POINT_CONVERSION_UNCOMPRESSED, /*ctx=*/nullptr)) {
       return false;
@@ -98,11 +97,10 @@ class ECKeyShare : public SSLKeyShare {
     }
 
     // Compute the x-coordinate of |peer_key| * |private_key_|.
-    if (!EC_POINT_mul(group_, result.get(), NULL, peer_point.get(),
+    if (!EC_POINT_mul(group_, result.get(), nullptr, peer_point.get(),
                       private_key_.get(), /*ctx=*/nullptr) ||
         !EC_POINT_get_affine_coordinates_GFp(group_, result.get(), x.get(),
-                                             NULL,
-                                             /*ctx=*/nullptr)) {
+                                             nullptr, /*ctx=*/nullptr)) {
       return false;
     }
 
@@ -219,7 +217,7 @@ class X25519Kyber768KeyShare : public SSLKeyShare {
   bool Encap(CBB *out_ciphertext, Array<uint8_t> *out_secret,
              uint8_t *out_alert, Span<const uint8_t> peer_key) override {
     Array<uint8_t> secret;
-    if (!secret.Init(32 + 32)) {
+    if (!secret.Init(32 + KYBER_SHARED_SECRET_BYTES)) {
       return false;
     }
 
@@ -243,8 +241,7 @@ class X25519Kyber768KeyShare : public SSLKeyShare {
     }
 
     uint8_t kyber_ciphertext[KYBER_CIPHERTEXT_BYTES];
-    KYBER_encap(kyber_ciphertext, secret.data() + 32, secret.size() - 32,
-                &peer_kyber_pub);
+    KYBER_encap(kyber_ciphertext, secret.data() + 32, &peer_kyber_pub);
 
     if (!CBB_add_bytes(out_ciphertext, x25519_public_key,
                        sizeof(x25519_public_key)) ||
@@ -262,7 +259,7 @@ class X25519Kyber768KeyShare : public SSLKeyShare {
     *out_alert = SSL_AD_INTERNAL_ERROR;
 
     Array<uint8_t> secret;
-    if (!secret.Init(32 + 32)) {
+    if (!secret.Init(32 + KYBER_SHARED_SECRET_BYTES)) {
       return false;
     }
 
@@ -273,7 +270,7 @@ class X25519Kyber768KeyShare : public SSLKeyShare {
       return false;
     }
 
-    KYBER_decap(secret.data() + 32, secret.size() - 32, ciphertext.data() + 32,
+    KYBER_decap(secret.data() + 32, ciphertext.data() + 32,
                 &kyber_private_key_);
     *out_secret = std::move(secret);
     return true;
@@ -303,13 +300,13 @@ Span<const NamedGroup> NamedGroups() {
 UniquePtr<SSLKeyShare> SSLKeyShare::Create(uint16_t group_id) {
   switch (group_id) {
     case SSL_GROUP_SECP224R1:
-      return MakeUnique<ECKeyShare>(NID_secp224r1, SSL_GROUP_SECP224R1);
+      return MakeUnique<ECKeyShare>(EC_group_p224(), SSL_GROUP_SECP224R1);
     case SSL_GROUP_SECP256R1:
-      return MakeUnique<ECKeyShare>(NID_X9_62_prime256v1, SSL_GROUP_SECP256R1);
+      return MakeUnique<ECKeyShare>(EC_group_p256(), SSL_GROUP_SECP256R1);
     case SSL_GROUP_SECP384R1:
-      return MakeUnique<ECKeyShare>(NID_secp384r1, SSL_GROUP_SECP384R1);
+      return MakeUnique<ECKeyShare>(EC_group_p384(), SSL_GROUP_SECP384R1);
     case SSL_GROUP_SECP521R1:
-      return MakeUnique<ECKeyShare>(NID_secp521r1, SSL_GROUP_SECP521R1);
+      return MakeUnique<ECKeyShare>(EC_group_p521(), SSL_GROUP_SECP521R1);
     case SSL_GROUP_X25519:
       return MakeUnique<X25519KeyShare>();
     case SSL_GROUP_X25519_KYBER768_DRAFT00:
