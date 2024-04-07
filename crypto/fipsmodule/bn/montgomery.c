@@ -121,17 +121,24 @@
 #include "../../internal.h"
 
 
+void bn_mont_ctx_init(BN_MONT_CTX *mont) {
+  OPENSSL_memset(mont, 0, sizeof(BN_MONT_CTX));
+  BN_init(&mont->RR);
+  BN_init(&mont->N);
+}
+
+void bn_mont_ctx_cleanup(BN_MONT_CTX *mont) {
+  BN_free(&mont->RR);
+  BN_free(&mont->N);
+}
+
 BN_MONT_CTX *BN_MONT_CTX_new(void) {
   BN_MONT_CTX *ret = OPENSSL_malloc(sizeof(BN_MONT_CTX));
-
   if (ret == NULL) {
     return NULL;
   }
 
-  OPENSSL_memset(ret, 0, sizeof(BN_MONT_CTX));
-  BN_init(&ret->RR);
-  BN_init(&ret->N);
-
+  bn_mont_ctx_init(ret);
   return ret;
 }
 
@@ -140,8 +147,7 @@ void BN_MONT_CTX_free(BN_MONT_CTX *mont) {
     return;
   }
 
-  BN_free(&mont->RR);
-  BN_free(&mont->N);
+  bn_mont_ctx_cleanup(mont);
   OPENSSL_free(mont);
 }
 
@@ -498,3 +504,29 @@ void bn_mod_mul_montgomery_small(BN_ULONG *r, const BN_ULONG *a,
   }
   OPENSSL_cleanse(tmp, 2 * num * sizeof(BN_ULONG));
 }
+
+#if defined(OPENSSL_BN_ASM_MONT) && defined(OPENSSL_X86_64)
+int bn_mul_mont(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
+                const BN_ULONG *np, const BN_ULONG *n0, size_t num) {
+  if (ap == bp && bn_sqr8x_mont_capable(num)) {
+    return bn_sqr8x_mont(rp, ap, bn_mulx_adx_capable(), np, n0, num);
+  }
+  if (bn_mulx4x_mont_capable(num)) {
+    return bn_mulx4x_mont(rp, ap, bp, np, n0, num);
+  }
+  if (bn_mul4x_mont_capable(num)) {
+    return bn_mul4x_mont(rp, ap, bp, np, n0, num);
+  }
+  return bn_mul_mont_nohw(rp, ap, bp, np, n0, num);
+}
+#endif
+
+#if defined(OPENSSL_BN_ASM_MONT) && defined(OPENSSL_ARM)
+int bn_mul_mont(BN_ULONG *rp, const BN_ULONG *ap, const BN_ULONG *bp,
+                const BN_ULONG *np, const BN_ULONG *n0, size_t num) {
+  if (bn_mul8x_mont_neon_capable(num)) {
+    return bn_mul8x_mont_neon(rp, ap, bp, np, n0, num);
+  }
+  return bn_mul_mont_nohw(rp, ap, bp, np, n0, num);
+}
+#endif
